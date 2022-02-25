@@ -22,6 +22,7 @@ library(tidyverse)
 library(viridis)
 library(caret)
 library(GGally)
+library(gridExtra)
 
 # Set global options for embedding plots and choosing themes
 knitr::opts_chunk$set(warning = FALSE, message = FALSE, fig.align = "center")
@@ -60,11 +61,11 @@ testing_df = data[-indexTrain, ]
 
 # Create matrices for future analysis
 
-# Train data
+# Training data
 x_train = model.matrix(outstate~.,training_df)[, -1]
 y_train = training_df$outstate
 
-# Test data
+# Testing data
 x_test <- model.matrix(outstate~.,testing_df)[, -1]
 y_test <- testing_df$outstate
 ```
@@ -77,9 +78,11 @@ summary(training_df)
 skimr::skim(training_df)
 ```
 
+In total, our training data set has 453 observations on 17 variables, with no data incompleteness. Of the 17 variables, our single response (outcome) variable is `outstate`, representing out of state tuition. Our other 16 variables are continuous, numeric variables representing a range of predictors, from annual applications to cost of room and board. Notably, we have excluded college name (`college`) as a predictor given its presumed irrelevance to any kind of predictive model. 
+
 ```{r}
 # EDA scatterplots
-# Visual themes
+# Set visual theme settings
 theme1 = trellis.par.get()
 theme1$plot.symbol$col = rgb(.2, .4, .2, .5)
 theme1$plot.symbol$pch = 16
@@ -96,12 +99,14 @@ ggpairs(training_df)
 
 ```
 
+At first glance, the clearest linear relationships with `outstate` seem to be with predictors `perc_alumni`, `grad_rate`, `ph_d`, `terminal`, `top25perc`, `room_board`, and `top10perc`. In addition, we observe numerous multicollinearities with correlation greater than 0.90, including `apps` and `enroll`, `enroll` and `accept`, `top25perc` and `top10perc`, and several others.
+
 ## Part (b): Smoothing Spline Models
 
 ```{r}
 set.seed(2132)
-# Fit smoothing spline using terminal as only predictor of outstate
-# By default, uses generalized cross-validation to select lambda value (smoothing parameter, i.e. trace of the smoothing matrix)
+# Fit smoothing spline using `terminal` as only predictor of `outstate`
+# By default, uses generalized cross-validation to select lambda value (smoothing parameter)
 fit_smooth_spline = smooth.spline(training_df$terminal, training_df$outstate)
 
 # Optimal degrees of freedom based on cross-validation
@@ -131,6 +136,9 @@ pred_smooth_spline_testing_df = data.frame(predicted = pred_smooth_spline_testin
 p + geom_line(aes(x = terminal, y = predicted), data = pred_smooth_spline_testing_df,
           color = rgb(.8, .1, .1, 1)) + theme_bw()
 ```
+
+Here, we fit a smoothing spline model using `terminal` as the only predictor of `outstate` for the optimal degrees of freedom obtained by generalized cross-validation, which is about 4.4. However, we'd also like to understand how the model fit changes with a range of degrees of freedom, which we plot below:
+
 
 ```{r}
 # Try a range of degrees of freedom in function
@@ -162,6 +170,8 @@ p +
           color = rgb(.8, .1, .1, 1))
 ```
 
+Overlaying the model with different degrees of freedom (ranging from 2 to 15), we see that with fewer than 4 degrees of freedom, our model fit is more linear. As we increase the degrees of freedom much beyond 4, there is more overfitting; our models start to "wiggle" more. We can observe that our optimized model with about 4.4 degrees of freedom optimally fits the data.
+
 ## Part (c): Generalized Additive Model
 
 ```{r}
@@ -190,6 +200,7 @@ gam_fit$finalModel
 summary(gam_fit)
 
 # Plot of final model
+par(mar=c(1,1,1,1))
 par(mfrow = c(4, 4))
 plot(gam_fit$finalModel, residuals = TRUE, all.terms = TRUE, shade = TRUE, shade.col = 2)
 
@@ -197,12 +208,23 @@ plot(gam_fit$finalModel, residuals = TRUE, all.terms = TRUE, shade = TRUE, shade
 gam_train_MSE = mean((y_train - predict(gam_fit))^2)
 gam_train_MSE
 
+gam_train_RMSE = sqrt(gam_train_MSE)
+gam_train_RMSE
+
 # Calculate test MSE of optimal model
 test_predictions = predict(gam_fit, x_test)
 
 gam_test_MSE = mean((y_test - test_predictions)^2)
 gam_test_MSE
+
+gam_test_RMSE = sqrt(gam_test_MSE)
+gam_test_RMSE
 ```
+
+We may choose to fit our GAM using either MCGV or the `caret` package. Notably, the latter may result in loss of flexibility since it automatically precludes the possibility of nonlinear transformations for predictors that take fewer than 10 unique values. However, in this case, all of our predictors take more than 10 unique values, and so we do not expect loss of flexibility by using `caret`.
+
+Using all of our predictors, our best model attains an MSE of 2251375 (RMSE 1500.5) when we apply our model to the training data and an MSE of 3364712 (RMSE 1834.3) when we apply it to the hold-out test data from our original partitioning. In our output summary, the "parametric coefficients" refers to the linear terms of the model, which in this case only includes the intercept. Coefficients are not printed for our smooth terms because each smooth term has several coefficients corresponding to different basis functions. Instead, we have effective degrees of freedom, which represent the complexity of the smooth function. `terminal`, `top10perc`, `top25perc`, `personal`, `p_undergrad`, and `enroll` all have one effective degree of freedom, corresponding to a straight line; our graphs confirm these linear relationships. Those with effective degrees of freedom around two, such as `perc_alumni` and `books`, are quadratically incorporated, whereas those with effective degrees of freedom around three, such as `grad_rate` and `accept`, are cubically incorporated, and so on. In our model, `perc_alumni`, `enroll`, `room_board`, `f_undergrad`, and `expend` are our most significant smooth terms.
+
 
 ## Part (d): Multivariate Adaptive Regression Spline Model
 
@@ -221,7 +243,7 @@ mars_fit = train(x_train, y_train,
                   tuneGrid = mars_grid,
                   trControl = ctrl1)
 
-# Choose optimal model with 1 degree and 15 hinge functions to minimize RMSE
+# Choose optimal model with 1 degree and 18 hinge functions to minimize RMSE
 # Note that n terms includes the intercept
 ggplot(mars_fit)
 mars_fit$bestTune
@@ -236,13 +258,22 @@ coef(mars_fit$finalModel)
 
 # Report train MSE
 mars_train_MSE = mean((y_train - predict(mars_fit))^2)
+mars_train_MSE
+
+mars_train_RMSE = sqrt(mars_train_MSE)
+mars_train_RMSE
 
 # Report test MSE
 test_predictions_mars = predict(mars_fit, x_test)
 
 mars_test_MSE = mean((y_test - test_predictions_mars)^2)
 mars_test_MSE
+
+mars_test_RMSE = sqrt(mars_test_MSE)
+mars_test_RMSE
 ```
+
+Here, we train a MARS model using all predictors, finding that the optimal model attains an MSE of 2421360 (RMSE 1556.1) when we apply our model to the training data and an MSE of 3460709 (RMSE 1860.3) when we apply it to the hold-out test data from our original partitioning. The final model minimizes RMSE using one product degree (maximum degree of interactions, i.e. our final model is only an additive model) and 18 maximum terms, including intercept, from our `nprune` tuning parameter. 15 of 22 terms were used from 10 of the 16 original predictors. The 15 terms in our model include hinge functions and intercept. For example, looking at `apps`, we know that a knot occurs at 3767, and looking at `accept`, a knot occurs at 2109. Note that these include boundary knots. The most important predictors for for our outcome appear to be `expend`, `grad_rate`, `accept`, and `enroll`.
 
 ```{r}
 # Present partial dependence plot of arbitrary predictor in final model
@@ -261,6 +292,8 @@ partial_two_pred = pdp::partial(mars_fit, pred.var =  c("expend", "enroll"),
 
 grid.arrange(partial_one_pred, partial_two_pred, ncol = 2)
 ```
+
+Above, we present two partial dependency plots: the first, for `expend` only, and the second, for both `expend` and `enroll`. Looking at `expend`, for example, we find a single internal knot at 14773, which corresponds to the MARS model summary printed above. As a college exceeds 14773 on the `expend` metric, each additional unit of `expend` sees a marginal decrease in `outstate` compared to colleges with less than 14773 in `expend`. The interaction plot on the right illustrates the stronger effect `expend` and `enroll` might have when combined on `outstate`, for instance.
 
 ## Part (e): Selecting a Model
 
@@ -284,3 +317,4 @@ summary(resamp_caret)
 bwplot(resamp_caret, metric = "RMSE")
 ```
 
+In this example, we prefer the MARS model over a linear model when predicting out-of-state tuition because we minimize RMSE with our fitted MARS model, and thus we see a stronger model fit.
