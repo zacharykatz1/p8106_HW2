@@ -20,6 +20,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 library(tidyverse)
 library(viridis)
+library(caret)
+library(GGally)
 
 # Set global options for embedding plots and choosing themes
 knitr::opts_chunk$set(warning = FALSE, message = FALSE, fig.align = "center")
@@ -35,13 +37,170 @@ scale_colour_discrete = scale_colour_viridis_d
 scale_fill_discrete = scale_fill_viridis_d
 ```
 
-## Set-Up and Preprocessing
+## Set-Up and Data Preprocessing
 
 ```{r}
+set.seed(2132)
+
 # Load data, clean column names, eliminate rows containing NA entries
 data = read_csv("./Data/College.csv") %>% 
   janitor::clean_names() %>% 
-  na.omit()
+  na.omit() %>% 
+  relocate("outstate", .after = "grad_rate") %>% 
+  select(-college)
+
+# Partition data into training/test sets
+indexTrain = createDataPartition(y = data$outstate,
+                                 p = 0.8,
+                                 list = FALSE)
+
+training_df = data[indexTrain, ]
+
+testing_df = data[-indexTrain, ]
+
+# Create matrices for future analysis
+
+# Train data
+x_train = model.matrix(outstate~.,training_df)[, -1]
+y_train = training_df$outstate
+
+# Test data
+x_test <- model.matrix(outstate~.,testing_df)[, -1]
+y_test <- testing_df$outstate
+```
+
+## Part (a): Exploratory Data Analysis
+
+```{r}
+# Summary statistics
+summary(training_df)
+skimr::skim(training_df)
+```
+
+```{r}
+# EDA scatterplots
+# Visual themes
+theme1 = trellis.par.get()
+theme1$plot.symbol$col = rgb(.2, .4, .2, .5)
+theme1$plot.symbol$pch = 16
+theme1$plot.line$col = rgb(.8, .1, .1, 1)
+theme1$plot.line$lwd = 2
+theme1$strip.background$col = rgb(.0, .2, .6, .2)
+trellis.par.set(theme1)
+
+# All predictors are continuous; scatterplots most useful for data viz
+featurePlot(x_train, y_train, plot = "scatter", labels = c("","Y"), type = c("p"))
+
+# Pairwise relationships show numerous multicollinearities
+ggpairs(training_df)
 
 ```
+
+## Part (b): Smoothing Spline Models
+
+```{r}
+set.seed(2132)
+# Fit smoothing spline using terminal as only predictor of outstate
+# By default, uses generalized cross-validation to select lambda value (smoothing parameter, i.e. trace of the smoothing matrix)
+fit_smooth_spline = smooth.spline(training_df$terminal, training_df$outstate)
+
+# Optimal degrees of freedom based on cross-validation
+fit_smooth_spline$df
+
+# Prediction on grid of terminal values
+# Using min and max values from training and testing data
+terminal_grid <- seq(from = 24, to = 100, by = 1)
+
+pred_smooth_spline_grid = predict(fit_smooth_spline, x = terminal_grid)
+
+pred_smooth_spline_grid_df = data.frame(predicted = pred_smooth_spline_grid$y,
+                                        terminal = terminal_grid)
+
+p = ggplot(data = testing_df, aes(x = terminal, y = outstate)) +
+     geom_point(color = rgb(.2, .4, .2, .5))
+
+p + geom_line(aes(x = terminal, y = predicted), data = pred_smooth_spline_grid_df,
+              color = rgb(.8, .1, .1, 1)) + theme_bw()
+
+# Prediction on test data
+pred_smooth_spline_testing = predict(fit_smooth_spline, x = testing_df$terminal)
+
+pred_smooth_spline_testing_df = data.frame(predicted = pred_smooth_spline_testing$y,
+                                           terminal = testing_df$terminal)
+
+p + geom_line(aes(x = terminal, y = predicted), data = pred_smooth_spline_testing_df,
+          color = rgb(.8, .1, .1, 1)) + theme_bw()
+```
+
+```{r}
+# Try a range of degrees of freedom in function
+spline_fn = function(degree){
+  
+  spline_fit = smooth.spline(training_df$terminal, training_df$outstate, df = degree)
+  
+  spline_pred = predict(spline_fit, x = terminal_grid)
+  
+  spline_df = data.frame(predicted = spline_pred$y,
+                         terminal = terminal_grid,
+                         df = degree)
+  
+}
+
+# Run spline function for degrees of freedom 2 through 15
+datalist = list()
+for (i in 2:15) {
+  datalist[[i]] = spline_fn(i)
+}
+all_data = do.call(rbind, datalist) %>% 
+  as.data.frame()
+
+# Plot results for range of degrees of freedom
+# Red line represents optimal df from base R function
+p + 
+  geom_line(aes(x = terminal, y = predicted, group = df, color = df), data = all_data) + 
+  geom_line(aes(x = terminal, y = predicted), data = pred_smooth_spline_testing_df,
+          color = rgb(.8, .1, .1, 1))
+```
+
+## Part (c): Generalized Additive Model
+
+```{r}
+
+set.seed(2132)
+
+ctrl1 = trainControl(method = "cv", number = 10)
+
+# Check whether any predictors take on fewer than 10 values
+# None do, so we can use the caret function, which at times results in loss of flexibility when we have predictors that take on <= 10 values
+sapply(x_train %>% as.data.frame(), n_distinct)
+
+# Run GAM in caret
+# Use automatic feature selection (Cp method)
+gam_fit = train(x_train, y_train,
+                method = "gam",
+                tuneGrid = data.frame(method = "GCV.Cp",
+                                      select = c(TRUE, FALSE)),
+                trControl = ctrl1)
+
+# Parameters that fit the best model
+gam_fit$bestTune
+gam_fit$finalModel
+
+# Summary of final model
+summary(gam_fit)
+
+# Plot of final model
+par(mfrow = c(4, 4))
+plot(gam_fit$finalModel, residuals = TRUE, all.terms = TRUE, shade = TRUE, shade.col = 2)
+
+# Calculate training MSE of optimal model
+gam_train_MSE = mean((y_train - predict(gam_fit))^2)
+
+# Calculate test MSE of optimal model
+test_predictions = predict(gam_fit, x_test)
+
+gam_test_MSE = mean((y_test - test_predictions)^2)
+```
+
+## Part (d): Multivariate Adaptive Regression Spline Model
 
