@@ -195,12 +195,92 @@ plot(gam_fit$finalModel, residuals = TRUE, all.terms = TRUE, shade = TRUE, shade
 
 # Calculate training MSE of optimal model
 gam_train_MSE = mean((y_train - predict(gam_fit))^2)
+gam_train_MSE
 
 # Calculate test MSE of optimal model
 test_predictions = predict(gam_fit, x_test)
 
 gam_test_MSE = mean((y_test - test_predictions)^2)
+gam_test_MSE
 ```
 
 ## Part (d): Multivariate Adaptive Regression Spline Model
+
+```{r}
+set.seed(2132)
+
+ctrl1 = trainControl(method = "cv", number = 10)
+
+# Grid of tuning parameters
+mars_grid = expand.grid(degree = 1:3, 
+                         nprune = 2:25)
+
+# Fit MARS model
+mars_fit = train(x_train, y_train,
+                  method = "earth",
+                  tuneGrid = mars_grid,
+                  trControl = ctrl1)
+
+# Choose optimal model with 1 degree and 15 hinge functions to minimize RMSE
+# Note that n terms includes the intercept
+ggplot(mars_fit)
+mars_fit$bestTune
+
+# Model summary of best fit
+summary(mars_fit$finalModel)
+
+# Coefficients (betas) in front of each hinge function
+# Note that you can have more than 1 hinge function per predictor
+# In this case, we use 10 of 16 predictors
+coef(mars_fit$finalModel) 
+
+# Report train MSE
+mars_train_MSE = mean((y_train - predict(mars_fit))^2)
+
+# Report test MSE
+test_predictions_mars = predict(mars_fit, x_test)
+
+mars_test_MSE = mean((y_test - test_predictions_mars)^2)
+mars_test_MSE
+```
+
+```{r}
+# Present partial dependence plot of arbitrary predictor in final model
+
+partial_one_pred = pdp::partial(mars_fit, pred.var = c("expend"),
+                  grid.resolution = 10) %>% 
+  autoplot(smooth = TRUE, ylab = expression(f(expend))) + 
+  theme_light()
+
+# Try with two predictors at same time, for fun
+
+partial_two_pred = pdp::partial(mars_fit, pred.var =  c("expend", "enroll"),
+                  grid.resolution = 10) %>% 
+  pdp::plotPartial(levelplot = FALSE, zlab = "yhat", drape = TRUE,
+                   screen = list(z = 20, x = -60))
+
+grid.arrange(partial_one_pred, partial_two_pred, ncol = 2)
+```
+
+## Part (e): Selecting a Model
+
+```{r}
+resamp = resamples(list(gam_model = gam_fit,
+                        mars_model = mars_fit))
+
+summary(resamp)
+
+bwplot(resamp, metric = "RMSE")
+```
+
+```{r}
+# Alternative method
+
+resamp_caret = caret::resamples(list(gam_model = gam_fit,
+                        mars_model = mars_fit))
+
+summary(resamp_caret)
+
+bwplot(resamp_caret, metric = "RMSE")
+```
 
