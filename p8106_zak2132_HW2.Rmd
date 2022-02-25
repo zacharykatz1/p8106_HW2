@@ -1,0 +1,47 @@
+---
+title: "P8106: Data Science II, Homework #2"
+author: 'Zachary Katz (UNI: zak2132)'
+date: "3/8/2022"
+output: 
+  pdf_document:
+    latex_engine: xelatex
+    toc: yes
+    toc_depth: 3
+  header-includes:
+    -\usepackage{fancyhdr}
+    -\usepackage{lipsum}
+    -\pagestyle{fancy}
+    -\fancyhead[R]{\thepage}
+    -\fancypagestyle{plain}{\pagestyle{fancy}}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(viridis)
+
+# Set global options for embedding plots and choosing themes
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, fig.align = "center")
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+## Set-Up and Preprocessing
+
+```{r}
+# Load data, clean column names, eliminate rows containing NA entries
+data = read_csv("./Data/College.csv") %>% 
+  janitor::clean_names() %>% 
+  na.omit()
+
+```
+
