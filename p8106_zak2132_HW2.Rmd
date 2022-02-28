@@ -181,7 +181,8 @@ set.seed(2132)
 ctrl1 = trainControl(method = "cv", number = 10)
 
 # Check whether any predictors take on fewer than 10 values
-# None do, so we can use the caret function, which at times results in loss of flexibility when we have predictors that take on <= 10 values
+# None do, so we can use the caret function, which at times results 
+# in loss of flexibility when we have predictors that take on <= 10 values
 sapply(x_train %>% as.data.frame(), n_distinct)
 
 # Run GAM in caret
@@ -273,7 +274,7 @@ mars_test_RMSE = sqrt(mars_test_MSE)
 mars_test_RMSE
 ```
 
-Here, we train a MARS model using all predictors, finding that the optimal model attains an MSE of 2421360 (RMSE 1556.1) when we apply our model to the training data and an MSE of 3460709 (RMSE 1860.3) when we apply it to the hold-out test data from our original partitioning. The final model minimizes RMSE using one product degree (maximum degree of interactions, i.e. our final model is only an additive model) and 18 maximum terms, including intercept, from our `nprune` tuning parameter. 15 of 22 terms were used from 10 of the 16 original predictors. The 15 terms in our model include hinge functions and intercept. For example, looking at `apps`, we know that a knot occurs at 3767, and looking at `accept`, a knot occurs at 2109. Note that these include boundary knots. The most important predictors for for our outcome appear to be `expend`, `grad_rate`, `accept`, and `enroll`.
+Here, we train a MARS model using all predictors, finding that the optimal model attains an MSE of 2421360 (RMSE 1556.1) when we apply our model to the training data and an MSE of 3460709 (RMSE 1860.3) when we apply it to the hold-out test data from our original partitioning. The final model minimizes RMSE using one product degree (maximum degree of interactions, i.e. our final model is only an additive model) and 18 maximum terms, including intercept, from our `nprune` tuning parameter. 15 of 22 terms were used from 10 of the 16 original predictors. The 15 terms in our model include hinge functions and intercept. For example, looking at `apps`, we know that a knot occurs at 3767, and looking at `accept`, a knot occurs at 2109. Note that these include boundary knots. The most important predictors for our outcome appear to be `expend`, `grad_rate`, `accept`, and `enroll`.
 
 ```{r}
 # Present partial dependence plot of arbitrary predictor in final model
